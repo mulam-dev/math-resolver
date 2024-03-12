@@ -48,16 +48,27 @@ const print = (...msg) => console.log(''.padStart(indent * 4), ...msg);
 
 const expr_to_dsp = ({head, data}) => {
     switch (head) {
-        case "udef":
-            return ["udef"];
-        case "num":
-            return [data];
-        case "var":
-            return [data];
-        case "sopt":
-            return [...expr_to_dsp(data.vals[0]), data.opt, ...expr_to_dsp(data.vals[1])];
-        default:
-            return ["<unknown>"];
+    case "udef":
+        return ["udef"];
+    case "num":
+        return [data];
+    case "var":
+        return [data];
+    case "sopt":
+        return [...expr_to_dsp(data.vals[0]), data.opt, ...expr_to_dsp(data.vals[1])];
+    default:
+        return ["<unknown>"];
+    }
+};
+
+const pass_to_dsp = pass => {
+    switch (typeof pass) {
+    case "number": return [pass];
+    case "string": return [pass];
+    case "object":
+        return pass.length === 3 ?
+            [...pass_to_dsp(pass[1]), pass[0], ...pass_to_dsp(pass[2])] :
+            [pass[0] + '(', ...pass.slice(1).flatMap(pass_to_dsp), ')'];
     }
 };
 
@@ -65,33 +76,33 @@ const make_ctx = () => ({});
 
 const runner = (ctx, {head, data}) => {
     switch (head) {
-        case "assign":
-            cmd_assign(ctx, data);
-            break;
-        case "eval":
-            cmd_eval(ctx, data);
-            break;
+    case "assign":
+        cmd_assign(ctx, data);
+        break;
+    case "eval":
+        cmd_eval(ctx, data);
+        break;
     }
 };
 
 const expr_to_pass = ({head, data}) => {
     switch (head) {
-        case "num":
-            return data;
-        case "var":
-            return data;
-        case "sopt":
-            return [data.opt, ...data.vals.map(expr_to_pass)];
-        default:
-            return "<unknown>";
+    case "num":
+        return data;
+    case "var":
+        return data;
+    case "sopt":
+        return make_pass(data.opt, ...data.vals.map(expr_to_pass));
+    default:
+        return "<unknown>";
     }
 };
 
 const pass_vars = pass => {
     switch (typeof pass) {
-        case "number": return [];
-        case "string": return [pass];
-        case "object": return pass.slice(1).flatMap(pass_vars);
+    case "number": return [];
+    case "string": return [pass];
+    case "object": return pass.slice(1).flatMap(pass_vars);
     }
 };
 
@@ -106,7 +117,7 @@ const find_var = (pvar, pass) => {
             if (part === pvar)
                 return [i - 1];
             else
-                return null;
+                continue;
         }
         const res = find_var(pvar, part);
         if (res) return [i - 1].concat(res);
@@ -138,25 +149,63 @@ Deno.test(function extract_var_test() {
     );
 });
 
+let cur_assign_idx = 0;
+
 const cmd_assign = (ctx, {tar, expr}) => {
     print(tar, '=', ...expr_to_dsp(expr));
-    if (!(ctx[tar] instanceof Array)) ctx[tar] = [];
     let pass, vars;
     switch (expr.head) {
-        case "udef":
-            break;
-        case "num":
-        case "var":
-        case "sopt":
-            pass = expr_to_pass(expr);
-            vars = Set.new([tar].concat(pass_vars(pass))).values();
-            for (const v of vars) ctx[v].unshift([tar, pass]);
-            break;
+    case "udef":
+        break;
+    case "num":
+    case "var":
+    case "sopt":
+        indent_in();
+        pass = make_pass('-', expr_to_pass(expr), tar);
+        vars = Set.new(pass_vars(pass)).values();
+        for (const v of vars) {
+            if (!(ctx[v] instanceof Array)) ctx[v] = [];
+            const npass = extract_var(v, pass);
+            ctx[v].unshift([cur_assign_idx, npass]);
+            print(v + ':', ...pass_to_dsp(npass));
+        }
+        cur_assign_idx += 1;
+        indent_out();
+        break;
+    }
+};
+
+const eval_var = (ctx, pvar, stack_var = [], stack_assign = []) => {
+    print(pvar, '=> ?');
+    const scope = ctx[pvar];
+    for (const [idx, pass] of scope)
+        if (!stack_assign.includes(idx)) {
+            indent_in();
+            const res = eval_pass(ctx, pass, stack_var, [idx].concat(stack_assign));
+            indent_out();
+            print(pvar, '=>', res);
+            return res;
+        }
+    return pvar;
+};
+
+const eval_pass = (ctx, pass, stack_var, stack_assign) => {
+    if (typeof pass === "number") return pass;
+    else if (typeof pass === "string") {
+        return stack_var.includes(pass) ?
+            pass : eval_var(ctx, pass, [pass].concat(stack_var), stack_assign);
+    } else {
+        print('>', ...pass_to_dsp(pass));
+        indent_in();
+        const res = make_pass(pass[0], ...pass.slice(1).map(p => eval_pass(ctx, p, stack_var, stack_assign)));
+        indent_out();
+        print('>', ...pass_to_dsp(res));
+        return res;
     }
 };
 
 const cmd_eval = (ctx, {tar}) => {
-    print(tar, '?');
+    eval_var(ctx, tar, [tar]);
 };
 
 const OPTS = {
@@ -164,14 +213,11 @@ const OPTS = {
         extract: (idx, inv, a, b) => idx === 0 ?
             [a, make_pass('-', inv, b)] :
             [b, make_pass('-', inv, a)],
-        resolve: (...vals) => {
-            switch (vals.length) {
-                case 1: return vals[0];
-                case 2:
-                    if (typeof vals[0] === "number" && typeof vals[1] === "number") return vals[0] + vals[1];
-                    // TODO
-                    return ['+', ...vals];
-            }
+        resolve: (a, b) => {
+            if (typeof a === "number") [a, b] = [b, a];
+            if (b === 0) return a;
+            if (typeof a === "number") return (a + b);
+            return ['+', a, b];
         },
     },
     '-': {
@@ -183,21 +229,15 @@ const OPTS = {
         extract: (_, inv, val) => ([val, make_pass('!', inv)]),
         resolve: val => {
             switch (typeof val) {
-                case "number": return -val;
-                case "string": return ['!', val];
-                case "object":
-                    switch (val[0]) {
-                        case "!": return val[1];
-                    }
-                    return ['!', val];
+            case "number": return -val;
+            case "string": return ['!', val];
+            case "object":
+                switch (val[0]) {
+                case "!": return val[1];
+                }
+                return ['!', val];
             }
         },
-    },
-    '*': {
-        rev: '/',
-    },
-    '/': {
-        rev: '*',
     },
 };
 
@@ -205,12 +245,10 @@ if (import.meta.main) {
     // Word.log_all = true;
     // Word.log_result = true;
     const exprs = reader.extract_from(`
-        x = udef
-        y = x + 3
+        y = x + 3 + 4
         y = 1
         x ?
     `);
     const ctx = make_ctx();
     for (const cmd of exprs) runner(ctx, cmd);
-    ctx.ll;
 }
