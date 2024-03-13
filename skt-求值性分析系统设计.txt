@@ -1,0 +1,51 @@
+command {
+    //
+}
+
+oracle {
+    //
+}
+
+resolve {
+    x + y = 3
+    y = 2
+}
+
+lazy {
+    k = 1
+    y = k + 1
+    x = y + 3
+    z = k + 4
+}
+
+func main() {
+    db_open()
+    const n = get_val(3)
+    const v = get_val(lazy_log(db_get(), "get"))
+    db_set(v)
+    return n
+}
+
+func db_open() {
+    ...(lazy)
+}
+
+func db_get() {
+    ...
+    log("get", v)
+    has(v)
+    assert(v, 1)
+    ...
+}
+
+func db_set(v) {
+    log("set", v)
+}
+
+func get_val(v) {
+    return 1 + 3
+}
+
+if (data[0].name.length = 5) {
+    print(data[0].name)
+}

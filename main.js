@@ -181,12 +181,17 @@ const eval_var = (ctx, pvar, stack_var = [], stack_assign = []) => {
     for (const [idx, pass] of scope)
         if (!stack_assign.includes(idx)) {
             indent_in();
-            const res = eval_pass(ctx, pass, stack_var, [idx].concat(stack_assign));
-            indent_out();
-            print(pvar, '=>', res);
-            return res;
+            try {
+                const res = eval_pass(ctx, pass, stack_var, [idx].concat(stack_assign));
+                indent_out();
+                print(pvar, '=>', ...pass_to_dsp(res));
+                return res;
+            } catch (_) {
+                indent_out();
+            }
         }
-    return pvar;
+    print(pvar, '=>', 'exhausted...');
+    throw null;
 };
 
 const eval_pass = (ctx, pass, stack_var, stack_assign) => {
@@ -197,10 +202,14 @@ const eval_pass = (ctx, pass, stack_var, stack_assign) => {
     } else {
         print('>', ...pass_to_dsp(pass));
         indent_in();
-        const res = make_pass(pass[0], ...pass.slice(1).map(p => eval_pass(ctx, p, stack_var, stack_assign)));
-        indent_out();
-        print('>', ...pass_to_dsp(res));
-        return res;
+        try {
+            const res = make_pass(pass[0], ...pass.slice(1).map(p => eval_pass(ctx, p, stack_var, stack_assign)));
+            indent_out();
+            print('>', ...pass_to_dsp(res));
+            return res;
+        } catch (_) {
+            indent_out();
+        }
     }
 };
 
@@ -217,6 +226,8 @@ const OPTS = {
             if (typeof a === "number") [a, b] = [b, a];
             if (b === 0) return a;
             if (typeof a === "number") return (a + b);
+            if (typeof b === "number" && a[0] === '+' && typeof a[2] === "number")
+                return make_pass('+', a[1], b + a[2]);
             return ['+', a, b];
         },
     },
@@ -234,8 +245,8 @@ const OPTS = {
             case "object":
                 switch (val[0]) {
                 case "!": return val[1];
+                case "+": return make_pass('+', make_pass('!', val[1]), make_pass('!', val[2]));
                 }
-                return ['!', val];
             }
         },
     },
@@ -244,9 +255,16 @@ const OPTS = {
 if (import.meta.main) {
     // Word.log_all = true;
     // Word.log_result = true;
+    // const exprs = reader.extract_from(`
+    //     y = 3 + x + 4
+    //     z = x + 3 + y
+    //     k = z + 2 + y
+    //     k = 1
+    //     x ?
+    // `);
     const exprs = reader.extract_from(`
-        y = x + 3 + 4
-        y = 1
+        x = y - 3
+        y = x + 3
         x ?
     `);
     const ctx = make_ctx();

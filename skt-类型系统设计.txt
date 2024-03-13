@@ -1,0 +1,48 @@
+const a = "face.png";
+String <=> Image
+String <=> File <=> Image
+b = a:^String.crop(0, 0, 100, 100); => Image
+b = xxx; // b: Image
+
+AnyType: Zig
+OOP: Java, C++, Rust
+Prototype: JS, Python, Smalltalk
+Procedure: C, Basic
+GeneralFunction: Haskell, LISP
+
+Person = {
+    name: String
+}
+
+Man extend (Person, ...) = {}
+
+func say(person: Person) => ...
+func say(person: Man, ...persons: Man[]) => ...
+
+
+Person = () => (typeof {
+    name: String,
+    age: Number,
+    gender: Bool,
+    say(): ...
+})
+
+Vector1
+Vector2
+Vector3
+...
+VectorN
+
+TBad = () => (typeof {
+    hand: "Dirty",
+})
+
+Man = () => (typeof {
+    ...Person()
+    gender: true,
+})
+
+BadMan = () => (typeof {
+    ...Man()
+    ...TBad()
+})
